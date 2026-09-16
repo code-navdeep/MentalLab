@@ -1,0 +1,23 @@
+{
+  "name": "@mental-lab/main",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "package": "electron-forge package --platform=darwin --arch=arm64",
+    "make": "electron-forge make --platform=darwin --arch=arm64"
+  },
+  "dependencies": {
+    "@mental-lab/engine": "*",
+    "@mental-lab/shared": "*",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.10.2",
+    "@electron-forge/maker-dmg": "^7.10.2",
+    "@electron-forge/maker-zip": "^7.10.2",
+    "electron": "^39.2.7"
+  }
+}

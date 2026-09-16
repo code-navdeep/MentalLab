@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-tsc/
+.package/
+out/
+*.tsbuildinfo
+.DS_Store
+.env
+.electron-zips/
+.build/

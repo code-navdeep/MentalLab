@@ -1,0 +1,232 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Mental Lab design tokens — "lab notebook" system.
+   Paper & ink with an ultramarine accent; amber for caution.
+   Dark mode is the "bench at night" variant of the same system.
+   ============================================================ */
+
+:root {
+  --paper: #fafaf7;
+  --surface: #ffffff;
+  --ink: #20222b;
+  --ink-muted: #6b6e7b;
+  --line: #e6e5de;
+  --accent: #2b4bd7;
+  --accent-ink: #2340b8;
+  --accent-wash: #eef1fd;
+  --amber: #b26f1f;
+  --ok: #2e7d4f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #17181d;
+    --surface: #1e2026;
+    --ink: #e7e7e2;
+    --ink-muted: #969aa6;
+    --line: #2b2e36;
+    --accent: #8aa0f4;
+    --accent-ink: #a3b4f7;
+    --accent-wash: #222a45;
+    --amber: #d9973f;
+    --ok: #5bae7f;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #17181d;
+  --surface: #1e2026;
+  --ink: #e7e7e2;
+  --ink-muted: #969aa6;
+  --line: #2b2e36;
+  --accent: #8aa0f4;
+  --accent-ink: #a3b4f7;
+  --accent-wash: #222a45;
+  --amber: #d9973f;
+  --ok: #5bae7f;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-wash: var(--accent-wash);
+  --color-amber: var(--amber);
+  --color-ok: var(--ok);
+
+  --font-display: ui-serif, "New York", Georgia, serif;
+  --font-body: -apple-system, system-ui, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Window chrome: the top strip is draggable (hiddenInset title bar). */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+.titlebar-drag button,
+.titlebar-drag a {
+  -webkit-app-region: no-drag;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* PDF viewer text layer (pdf.js): invisible selectable text over the canvas */
+.pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  caret-color: CanvasText;
+  user-select: text; /* body disables selection app-wide; re-enable here */
+}
+.pdf-text-layer span,
+.pdf-text-layer br {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+.pdf-text-layer ::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.pdf-highlight {
+  position: absolute;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  border-radius: 2px;
+}
+:root[data-theme="dark"] .pdf-highlight {
+  mix-blend-mode: screen;
+  opacity: 0.35;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pdf-highlight {
+    mix-blend-mode: screen;
+    opacity: 0.35;
+  }
+}
+.pdf-highlight[data-color="yellow"] { background: #f7e36b; }
+.pdf-highlight[data-color="blue"] { background: #9db8f7; }
+.pdf-highlight[data-color="green"] { background: #9fdcb2; }
+.pdf-highlight[data-color="pink"] { background: #f2aecb; }
+
+@keyframes cite-flash {
+  0% { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+  100% { background: transparent; }
+}
+.cite-flash {
+  animation: cite-flash 2.2s ease-out forwards;
+}
+
+/* Markdown prose (assistant messages, notes) */
+.md {
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--ink);
+  user-select: text;
+}
+.md > * + * {
+  margin-top: 0.65em;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.25;
+  margin-top: 1.1em;
+}
+.md h1 { font-size: 1.25rem; }
+.md h2 { font-size: 1.1rem; }
+.md h3 { font-size: 1rem; }
+.md ul,
+.md ol {
+  padding-left: 1.4em;
+}
+.md ul { list-style: disc; }
+.md ol { list-style: decimal; }
+.md li + li { margin-top: 0.25em; }
+.md code {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  background: var(--accent-wash);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+.md pre {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75em 1em;
+  overflow-x: auto;
+}
+.md pre code {
+  background: none;
+  padding: 0;
+}
+.md blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 1em;
+  color: var(--ink-muted);
+}
+.md a {
+  color: var(--accent-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md table {
+  border-collapse: collapse;
+  font-size: 0.85em;
+}
+.md th,
+.md td {
+  border: 1px solid var(--line);
+  padding: 0.35em 0.7em;
+  text-align: left;
+}
+.md th {
+  font-family: var(--font-mono);
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+}

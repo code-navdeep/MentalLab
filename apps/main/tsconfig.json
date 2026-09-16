@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist-tsc"
+  },
+  "references": [
+    { "path": "../../packages/engine" },
+    { "path": "../../packages/shared" }
+  ],
+  "include": ["src"]
+}

@@ -1,0 +1,34 @@
+{
+  "name": "@mental-lab/engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./db": "./src/db/index.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^2.0.0",
+    "@ai-sdk/deepseek": "^1.0.0",
+    "@ai-sdk/mcp": "^2.0.22",
+    "@ai-sdk/openai": "^2.0.0",
+    "@ai-sdk/openai-compatible": "^1.0.0",
+    "@anthropic-ai/sandbox-runtime": "^0.0.49",
+    "@electric-sql/pglite": "^0.3.14",
+    "@huggingface/transformers": "^3.4.0",
+    "@mental-lab/shared": "*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "ai": "^5.0.0",
+    "chokidar": "^4.0.3",
+    "croner": "^9.0.0",
+    "drizzle-orm": "^0.44.7",
+    "mailparser": "^3.7.5",
+    "mammoth": "^1.11.0",
+    "minimatch": "^10.0.0",
+    "pdfjs-dist": "^4.10.38",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.4.6"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "mental-lab-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "typecheck": "tsc -b apps/main apps/preload apps/renderer packages/engine packages/shared",
+    "make": "npm run make --workspace=apps/main"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "esbuild": "^0.25.0",
+    "@types/node": "^25.0.3"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "electron@39.8.10": true,
+    "fs-xattr@0.3.1": true,
+    "macos-alias@0.2.12": true,
+    "fsevents@2.3.3": true,
+    "onnxruntime-node@1.21.0": true,
+    "sharp@0.34.5": true,
+    "protobufjs@7.6.5": true
+  }
+}
