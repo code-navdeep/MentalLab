@@ -32,6 +32,14 @@ export function getDb(): DbHandle {
   return handle;
 }
 
+/** Quit, last step: close the database cleanly, after everything that writes. */
+export async function closeDb(): Promise<void> {
+  if (!handle) return;
+  const { pg } = handle;
+  handle = null;
+  await pg.close();
+}
+
 export async function getDbStatus(): Promise<{ dbOk: boolean; dbPath: string }> {
   if (!handle) return { dbOk: false, dbPath: "" };
   try {

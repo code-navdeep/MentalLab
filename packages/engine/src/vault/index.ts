@@ -12,7 +12,11 @@ import type {
 import { getConfigValue, setConfigValue } from "../config.js";
 import { getDb } from "../db/index.js";
 import { files } from "../db/schema.js";
-import { addFolder, runIndex } from "../indexer/library.js";
+import {
+  addFolder,
+  removeFolderByPath,
+  runIndex,
+} from "../indexer/library.js";
 import { probeCalendarAccess, syncCalendar } from "./calendar.js";
 import { probeMailAccess, syncMail } from "./mail.js";
 import { buildGraph, listVaultNotes } from "./builder.js";
@@ -48,6 +52,11 @@ async function loadVaultSettings(): Promise<VaultSettingsInternal> {
 }
 
 let syncing = false;
+// A folder switch and a sync never overlap: a sync captures the folder once.
+let switching = false;
+// Set at app quit: no new syncs, and the current one stops between steps.
+let stopping = false;
+let activeSync: Promise<void> | null = null;
 type SyncBroadcaster = (progress: VaultSyncProgress) => void;
 let broadcast: SyncBroadcaster = () => {};
 
@@ -96,13 +105,27 @@ export async function getVaultStatus(): Promise<VaultStatus> {
 }
 
 export async function setVaultFolder(folder: string): Promise<void> {
-  const s = await loadVaultSettings();
-  s.folder = folder;
-  await setConfigValue(CONFIG_KEY, s);
-  await mkdir(path.join(folder, "_sources"), { recursive: true });
-  // The vault joins the shared library index so Chat can answer from notes.
-  await addFolder(folder).catch(() => {});
-  await restartVaultSchedule();
+  if (syncing) {
+    throw new Error("A vault sync is running — change the folder after it finishes");
+  }
+  switching = true;
+  try {
+    // Created first: an unwritable folder fails here, before it is saved.
+    await mkdir(path.join(folder, "_sources"), { recursive: true });
+    const s = await loadVaultSettings();
+    const previous = s.folder;
+    s.folder = folder;
+    await setConfigValue(CONFIG_KEY, s);
+    // The vault joins the shared library index so Chat can answer from notes;
+    // the vault being left stops being searchable.
+    if (previous && previous !== folder) {
+      await removeFolderByPath(previous).catch(() => {});
+    }
+    await addFolder(folder).catch(() => {});
+    await restartVaultSchedule();
+  } finally {
+    switching = false;
+  }
 }
 
 export async function setVaultSettings(patch: {
@@ -120,14 +143,25 @@ export async function setVaultSettings(patch: {
 }
 
 export async function syncVaultNow(): Promise<boolean> {
-  if (syncing) return false;
-  const s = await loadVaultSettings();
-  if (!s.folder) return false;
+  if (syncing || switching || stopping) return false;
+  // Claimed before the first await so a folder switch cannot slip in between.
   syncing = true;
+  let s: VaultSettingsInternal;
+  try {
+    s = await loadVaultSettings();
+  } catch (err) {
+    syncing = false;
+    throw err;
+  }
+  if (!s.folder) {
+    syncing = false;
+    return false;
+  }
+  const shouldStop = () => stopping;
 
-  void (async () => {
+  activeSync = (async () => {
     try {
-      if (s.calendarEnabled) {
+      if (s.calendarEnabled && !stopping) {
         broadcast({ phase: "calendar", detail: "Fetching calendar events" });
         try {
           const n = await syncCalendar(s.folder!, 30, 60);
@@ -139,10 +173,10 @@ export async function syncVaultNow(): Promise<boolean> {
           });
         }
       }
-      if (s.mailEnabled) {
+      if (s.mailEnabled && !stopping) {
         broadcast({ phase: "mail", detail: "Reading recent mail" });
         try {
-          const n = await syncMail(s.folder!, s.mailDaysBack);
+          const n = await syncMail(s.folder!, s.mailDaysBack, shouldStop);
           broadcast({ phase: "mail", detail: `${n} messages updated` });
         } catch (err) {
           broadcast({
@@ -152,10 +186,14 @@ export async function syncVaultNow(): Promise<boolean> {
         }
       }
 
+      if (stopping) return;
       broadcast({ phase: "graph", detail: "Building notes" });
       try {
-        const result = await buildGraph(s.folder!, s.strictness, (detail) =>
-          broadcast({ phase: "graph", detail })
+        const result = await buildGraph(
+          s.folder!,
+          s.strictness,
+          (detail) => broadcast({ phase: "graph", detail }),
+          shouldStop
         );
         if (result.failedBatches > 0 || result.skippedSources > 0) {
           const parts = [`${result.notesWritten} notes written`];
@@ -181,6 +219,7 @@ export async function syncVaultNow(): Promise<boolean> {
         });
       }
 
+      if (stopping) return;
       broadcast({ phase: "indexing", detail: "Updating search index" });
       await runIndex();
 
@@ -194,6 +233,18 @@ export async function syncVaultNow(): Promise<boolean> {
   })();
 
   return true;
+}
+
+/** Quit, step 1: start no new syncs and stop the schedule. */
+export function stopVault(): void {
+  stopping = true;
+  scheduledSync?.stop();
+  scheduledSync = null;
+}
+
+/** Quit, step 3: resolves once the in-flight sync has stopped. */
+export async function waitForVaultSync(): Promise<void> {
+  await activeSync?.catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -332,6 +383,7 @@ function cronForInterval(minutes: number): string {
 export async function restartVaultSchedule(): Promise<void> {
   scheduledSync?.stop();
   scheduledSync = null;
+  if (stopping) return;
   const s = await loadVaultSettings();
   if (!s.folder || !s.autoSyncEnabled || (!s.mailEnabled && !s.calendarEnabled)) {
     return;

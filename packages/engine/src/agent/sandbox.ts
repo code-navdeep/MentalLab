@@ -172,6 +172,12 @@ export function isSandboxSupported(): boolean {
   return SandboxManager.isSupportedPlatform();
 }
 
+/** Quit, step 6: release the sandbox (its network proxies). */
+export async function shutdownSandbox(): Promise<void> {
+  if (!isSandboxActive()) return;
+  await SandboxManager.reset();
+}
+
 export function getSandboxConfig(): SandboxConfig {
   return { ...(currentConfig ?? defaultConfig()) };
 }

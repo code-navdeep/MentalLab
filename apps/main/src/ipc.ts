@@ -407,10 +407,15 @@ export function setupIpcHandlers() {
       message: "Choose the folder for your knowledge vault",
     });
     const chosen = result.filePaths[0];
+    let error: string | null = null;
     if (!result.canceled && chosen) {
-      await setVaultFolder(chosen);
+      try {
+        await setVaultFolder(chosen);
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+      }
     }
-    return getVaultStatus();
+    return { status: await getVaultStatus(), error };
   });
 
   handle("vault:setSettings", async (args) => {

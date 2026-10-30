@@ -42,6 +42,7 @@ export {
   syncVaultNow,
   writeVaultNote,
 } from "./vault/index.js";
+export { shutdownEngine } from "./shutdown.js";
 export {
   addHighlight,
   askPaperCopilot,

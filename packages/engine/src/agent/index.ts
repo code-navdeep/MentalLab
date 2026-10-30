@@ -4,6 +4,7 @@ import { cleanupOrphanedTasks } from "./director.js";
 import { startAutomations } from "./automations.js";
 
 export {
+  closeAgentConnections,
   configureAgentEvents,
   deleteTask,
   getPendingRequest,
@@ -17,10 +18,13 @@ export {
   listAutomations,
   runAutomationNow,
   saveAutomation,
+  stopAutomations,
 } from "./automations.js";
+export { killRunningCommands } from "./tools.js";
 export {
   getSandboxConfig,
   isSandboxSupported,
+  shutdownSandbox,
   updateSandboxConfig,
 } from "./sandbox.js";
 export { getAgentConfig, setAgentConfig } from "./agent-config.js";

@@ -6,6 +6,8 @@ import { automations } from "../db/schema.js";
 import { runTask } from "./director.js";
 
 const jobs = new Map<number, Cron>();
+// Set at app quit: nothing gets scheduled again.
+let stopping = false;
 
 function rowToInfo(row: typeof automations.$inferSelect): AutomationInfo {
   let nextRunAt: string | null = null;
@@ -49,7 +51,7 @@ async function fireAutomation(automationId: number): Promise<number> {
 function schedule(row: typeof automations.$inferSelect): void {
   jobs.get(row.id)?.stop();
   jobs.delete(row.id);
-  if (!row.enabled) return;
+  if (!row.enabled || stopping) return;
   try {
     const job = new Cron(row.cron, () => {
       void fireAutomation(row.id).catch(() => {});
@@ -64,6 +66,13 @@ export async function startAutomations(): Promise<void> {
   const { db } = getDb();
   const rows = await db.select().from(automations);
   for (const row of rows) schedule(row);
+}
+
+/** Quit, step 1: stop every scheduled automation. */
+export function stopAutomations(): void {
+  stopping = true;
+  for (const job of jobs.values()) job.stop();
+  jobs.clear();
 }
 
 export async function listAutomations(): Promise<AutomationInfo[]> {

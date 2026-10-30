@@ -135,7 +135,8 @@ export interface BuildResult {
 export async function buildGraph(
   vaultFolder: string,
   strictness: VaultStrictness,
-  onProgress: (detail: string) => void
+  onProgress: (detail: string) => void,
+  shouldStop: () => boolean
 ): Promise<BuildResult> {
   const state = await loadGraphState(vaultFolder);
   const candidates = await getFilesToProcess(vaultFolder, state);
@@ -155,6 +156,7 @@ export async function buildGraph(
   let failedBatches = 0;
   let lastError: string | null = null;
   for (let i = 0; i < toProcess.length; i += BATCH_SIZE) {
+    if (shouldStop()) break;
     const batch = toProcess.slice(i, i + BATCH_SIZE);
     onProgress(
       `Reading sources ${i + 1}–${Math.min(i + BATCH_SIZE, toProcess.length)} of ${toProcess.length}`

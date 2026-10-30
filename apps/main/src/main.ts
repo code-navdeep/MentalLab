@@ -1,4 +1,12 @@
-import { app, BrowserWindow, net, protocol, safeStorage, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  net,
+  protocol,
+  safeStorage,
+  shell,
+  utilityProcess,
+} from "electron";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { APP_NAME } from "@mental-lab/shared";
@@ -14,6 +22,7 @@ import {
   restartVaultSchedule,
   setAppleSidecarPath,
   setSecretStore,
+  shutdownEngine,
   startAgent,
   startLibrary,
 } from "@mental-lab/engine";
@@ -159,10 +168,32 @@ app.whenReady().then(async () => {
       : path.join(__dirname, "../../../sidecar/applekit/.build/release/applekit")
   );
 
-  // Local embeddings run on a worker thread; models cache under userData.
+  // Local embeddings run in a separate helper process (ONNX Runtime is
+  // native code: a crash there must not take the app down); models cache
+  // under userData.
   configureEmbeddings({
-    workerPath: path.join(__dirname, "workers/embeddings-worker.cjs"),
-    cacheDir: path.join(dataDir, "models"),
+    launch: () => {
+      const child = utilityProcess.fork(
+        path.join(__dirname, "workers/embeddings-worker.cjs")
+      );
+      child.postMessage({
+        type: "init",
+        cacheDir: path.join(dataDir, "models"),
+      });
+      return {
+        postMessage: (message) => child.postMessage(message),
+        onMessage: (listener) => child.on("message", listener),
+        onExit: (listener) => child.on("exit", listener),
+        // SIGKILL: ends it without running ONNX Runtime's exit clean-up.
+        kill: () => {
+          try {
+            if (child.pid !== undefined) process.kill(child.pid, "SIGKILL");
+          } catch {
+            // already gone
+          }
+        },
+      };
+    },
   });
 
   setupIpcHandlers();
@@ -195,4 +226,23 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+// Quit first shuts the engine down in order (helpers, timers, in-flight
+// work), so nothing is torn down mid-flight. Capped so Quit never hangs.
+const SHUTDOWN_LIMIT_MS = 5000;
+let quitState: "running" | "stopping" | "done" = "running";
+
+app.on("before-quit", (event) => {
+  if (quitState === "done") return;
+  event.preventDefault();
+  if (quitState === "stopping") return;
+  quitState = "stopping";
+  const limit = new Promise<void>((resolve) =>
+    setTimeout(resolve, SHUTDOWN_LIMIT_MS)
+  );
+  void Promise.race([shutdownEngine().catch(() => {}), limit]).then(() => {
+    quitState = "done";
+    app.quit();
+  });
 });

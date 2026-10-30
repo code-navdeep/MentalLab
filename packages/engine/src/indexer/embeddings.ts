@@ -1,4 +1,3 @@
-import { Worker } from "node:worker_threads";
 import { getConfigValue, setConfigValue } from "../config.js";
 import { loadSettings } from "../models/settings.js";
 import { probeOllama } from "../models/ollama.js";
@@ -13,15 +12,26 @@ export interface EmbeddingsSource {
   dimension: number;
 }
 
-let workerPath: string | null = null;
-let cacheDir: string | null = null;
+/**
+ * A running local-embeddings helper. Main supplies the launcher (a separate
+ * process, so a native ONNX Runtime crash cannot take the app down) — the
+ * engine never imports electron directly.
+ */
+export interface EmbeddingsHost {
+  postMessage(msg: unknown): void;
+  onMessage(
+    cb: (msg: { id: number; vectors?: number[][]; error?: string }) => void
+  ): void;
+  onExit(cb: () => void): void;
+  kill(): void;
+}
+
+let launch: (() => EmbeddingsHost) | null = null;
 
 export function configureEmbeddings(opts: {
-  workerPath: string;
-  cacheDir: string;
+  launch: () => EmbeddingsHost;
 }): void {
-  workerPath = opts.workerPath;
-  cacheDir = opts.cacheDir;
+  launch = opts.launch;
 }
 
 export async function detectEmbeddingsSource(): Promise<EmbeddingsSource> {
@@ -45,47 +55,52 @@ export async function detectEmbeddingsSource(): Promise<EmbeddingsSource> {
 // Local worker plumbing
 // ---------------------------------------------------------------------------
 
-let worker: Worker | null = null;
+let worker: EmbeddingsHost | null = null;
 let nextId = 1;
 const pending = new Map<
   number,
   { resolve: (v: number[][]) => void; reject: (e: Error) => void }
 >();
+// Set at app quit: the helper is not restarted.
+let stopping = false;
 
-function ensureWorker(): Worker {
+function rejectPending(error: Error): void {
+  for (const [, p] of pending) p.reject(error);
+  pending.clear();
+}
+
+function ensureWorker(): EmbeddingsHost {
+  if (stopping) throw new Error("App is shutting down");
   if (worker) return worker;
-  if (!workerPath || !cacheDir) {
+  if (!launch) {
     throw new Error("Embeddings worker not configured");
   }
-  worker = new Worker(workerPath, { workerData: { cacheDir } });
-  worker.on(
-    "message",
-    (msg: { id: number; vectors?: number[][]; error?: string }) => {
-      if (msg.id === 0) {
-        // Startup signal: an error here is fatal — nothing will ever answer.
-        if (msg.error) {
-          const error = new Error(`Embeddings worker failed: ${msg.error}`);
-          for (const [, p] of pending) p.reject(error);
-          pending.clear();
-          void worker?.terminate();
-          worker = null;
-        }
-        return;
+  const w = launch();
+  worker = w;
+  w.onMessage((msg) => {
+    if (msg.id === 0) {
+      // Startup signal: an error here is fatal — nothing will ever answer.
+      if (msg.error) {
+        rejectPending(new Error(`Embeddings worker failed: ${msg.error}`));
+        if (worker === w) worker = null;
+        w.kill();
       }
-      const p = pending.get(msg.id);
-      if (!p) return;
-      pending.delete(msg.id);
-      if (msg.error) p.reject(new Error(msg.error));
-      else p.resolve(msg.vectors ?? []);
+      return;
     }
-  );
-  worker.on("error", (err) => {
-    const error = err instanceof Error ? err : new Error(String(err));
-    for (const [, p] of pending) p.reject(error);
-    pending.clear();
-    worker = null;
+    const p = pending.get(msg.id);
+    if (!p) return;
+    pending.delete(msg.id);
+    if (msg.error) p.reject(new Error(msg.error));
+    else p.resolve(msg.vectors ?? []);
   });
-  return worker;
+  w.onExit(() => {
+    // An unexpected exit fails what was waiting; the next request starts a
+    // fresh helper. A helper already replaced or stopped is ignored.
+    if (worker !== w) return;
+    worker = null;
+    rejectPending(new Error("Embeddings worker stopped"));
+  });
+  return w;
 }
 
 function embedLocal(texts: string[]): Promise<number[][]> {
@@ -93,8 +108,17 @@ function embedLocal(texts: string[]): Promise<number[][]> {
   const id = nextId++;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    w.postMessage({ id, texts });
+    w.postMessage({ type: "embed", id, texts });
   });
+}
+
+/** Quit, step 4: kill the helper — SIGKILL skips ONNX Runtime's exit clean-up. */
+export function stopEmbeddings(): void {
+  stopping = true;
+  const w = worker;
+  worker = null;
+  rejectPending(new Error("App is shutting down"));
+  w?.kill();
 }
 
 async function embedOllama(

@@ -101,7 +101,8 @@ async function parseEmlx(filePath: string): Promise<{
 /** Sync recent Apple Mail messages into <vault>/_sources/mail. */
 export async function syncMail(
   vaultFolder: string,
-  daysBack: number
+  daysBack: number,
+  shouldStop: () => boolean
 ): Promise<number> {
   const cutoff = Date.now() - daysBack * 24 * 60 * 60 * 1000;
   const found: { path: string; mtime: number }[] = [];
@@ -114,6 +115,7 @@ export async function syncMail(
 
   let written = 0;
   for (const item of batch) {
+    if (shouldStop()) break;
     const parsed = await parseEmlx(item.path);
     if (!parsed) continue;
 

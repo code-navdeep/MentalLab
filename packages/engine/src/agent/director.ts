@@ -69,6 +69,16 @@ export function getPendingRequest(taskId: number): UserRequest | null {
   return pendingByTask.get(taskId) ?? null;
 }
 
+// MCP tool-server connections of running tasks, so app quit can close them.
+const openMcpClients = new Set<{ close: () => Promise<void> }>();
+
+/** Quit, step 2: close every MCP connection still open. */
+export async function closeAgentConnections(): Promise<void> {
+  const clients = [...openMcpClients];
+  openMcpClients.clear();
+  await Promise.all(clients.map((client) => client.close().catch(() => {})));
+}
+
 // ---------------------------------------------------------------------------
 // Task persistence helpers
 // ---------------------------------------------------------------------------
@@ -247,6 +257,7 @@ async function executeTask(taskId: number, prompt: string): Promise<void> {
           }),
         });
         mcpClients.push(client);
+        openMcpClients.add(client);
         const serverTools = await client.tools();
         for (const [name, t] of Object.entries(serverTools)) {
           tools[`${server.name}__${name}`] = t as Tool;
@@ -339,6 +350,7 @@ async function executeTask(taskId: number, prompt: string): Promise<void> {
     await setStatus("error");
   } finally {
     for (const client of mcpClients) {
+      openMcpClients.delete(client);
       void client.close().catch(() => {});
     }
   }

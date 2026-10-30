@@ -79,29 +79,61 @@ export async function removeFolder(folderId: number): Promise<void> {
   await restartWatcher();
 }
 
+export async function removeFolderByPath(folderPath: string): Promise<void> {
+  const { db } = getDb();
+  await db.delete(libraryFolders).where(eq(libraryFolders.path, folderPath));
+  await restartWatcher();
+}
+
 // ---------------------------------------------------------------------------
 // Scanning + indexing (serialized: one run at a time, one queued)
 // ---------------------------------------------------------------------------
 
 let running = false;
 let queued = false;
+// Set at app quit: no new runs, and the current run stops at its next file.
+let stopping = false;
+let activeRun: Promise<void> | null = null;
 
 export async function runIndex(): Promise<void> {
+  if (stopping) return;
   if (running) {
     queued = true;
     return;
   }
   running = true;
-  try {
-    await scanAndIndex();
-  } finally {
-    running = false;
-    report({ phase: "idle", currentFile: null, done: 0, total: 0 });
-    if (queued) {
-      queued = false;
-      void runIndex();
+  const run = (async () => {
+    try {
+      await scanAndIndex();
+    } finally {
+      running = false;
+      report({ phase: "idle", currentFile: null, done: 0, total: 0 });
+      if (queued && !stopping) {
+        queued = false;
+        void runIndex();
+      }
     }
+  })();
+  activeRun = run;
+  await run;
+}
+
+/** Quit, step 1: start no new index runs and stop watching folders. */
+export async function stopLibrary(): Promise<void> {
+  stopping = true;
+  if (watcher) {
+    await watcher.close();
+    watcher = null;
   }
+  if (rescanTimer) {
+    clearTimeout(rescanTimer);
+    rescanTimer = null;
+  }
+}
+
+/** Quit, step 3: resolves once the in-flight run has stopped. */
+export async function waitForIndex(): Promise<void> {
+  await activeRun?.catch(() => {});
 }
 
 // Runtime scan health, keyed by folder id. Repopulated on every scan; the
@@ -157,10 +189,14 @@ async function scanAndIndex(): Promise<void> {
   const toIndex: { folderId: number; abs: string; rel: string }[] = [];
 
   for (const folder of folders) {
+    // Return, never break: the prune below would treat unscanned folders'
+    // files as deleted.
+    if (stopping) return;
     const { files: paths, unreadable } = await walkFolder(folder.path);
     // Refresh scan health for this folder (watch errors merge in listFolders).
     unreadableByFolder.set(folder.id, new Set(unreadable));
     for (const abs of paths) {
+      if (stopping) return;
       seenPaths.push(abs);
       const rel = path.relative(folder.path, abs);
       let fileStat;
@@ -212,6 +248,7 @@ async function scanAndIndex(): Promise<void> {
   const source = await getLockedEmbeddingsSource();
   let done = 0;
   for (const item of toIndex) {
+    if (stopping) return;
     report({
       phase: "indexing",
       currentFile: item.rel,
@@ -269,6 +306,9 @@ async function indexOne(
 
     const vectors: number[][] = [];
     for (let i = 0; i < parts.length; i += EMBED_BATCH) {
+      // Interrupted by quit: the row stays 'indexing', so the next launch
+      // re-indexes it instead of reporting a failure.
+      if (stopping) return;
       const batch = parts.slice(i, i + EMBED_BATCH);
       vectors.push(
         ...(await embedWithSource(
@@ -295,6 +335,7 @@ async function indexOne(
         .where(eq(files.id, fileId));
     });
   } catch (err) {
+    if (stopping) return;
     await db
       .update(files)
       .set({
@@ -321,6 +362,7 @@ function scheduleRescan() {
 }
 
 export async function restartWatcher(): Promise<void> {
+  if (stopping) return;
   const { db } = getDb();
   if (watcher) {
     await watcher.close();

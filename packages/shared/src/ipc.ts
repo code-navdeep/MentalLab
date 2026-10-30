@@ -355,7 +355,7 @@ export const ipcSchemas = {
   },
   "vault:chooseFolder": {
     req: z.null(), // main shows the native folder picker
-    res: VaultStatus,
+    res: z.object({ status: VaultStatus, error: z.string().nullable() }),
   },
   "vault:setSettings": {
     req: z.object({

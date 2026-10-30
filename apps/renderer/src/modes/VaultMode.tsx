@@ -53,6 +53,7 @@ export default function VaultMode() {
   const [showSettings, setShowSettings] = useState(false);
   const [sync, setSync] = useState<VaultSyncProgress | null>(null);
   const [lastSyncError, setLastSyncError] = useState<string | null>(null);
+  const [folderError, setFolderError] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(() => {
@@ -115,7 +116,58 @@ export default function VaultMode() {
     if (next) setGraph(await window.ipc.invoke("vault:graph", null));
   }
 
+  async function chooseFolder() {
+    setFolderError(null);
+    // Save a pending edit into the current folder now: once the folder
+    // changes, a late auto-save would land in the new vault.
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+      if (activeNote) {
+        try {
+          await window.ipc.invoke("vault:writeNote", {
+            name: activeNote,
+            content,
+          });
+          setSaved(true);
+        } catch (err) {
+          setFolderError(err instanceof Error ? err.message : String(err));
+          return;
+        }
+      }
+    }
+    // Close the open note so nothing is typed into it while the folder changes.
+    const reopen = activeNote;
+    setActiveNote(null);
+    setContent("");
+    setEditing(false);
+    setBacklinks([]);
+
+    let result;
+    try {
+      result = await window.ipc.invoke("vault:chooseFolder", null);
+    } catch (err) {
+      setFolderError(err instanceof Error ? err.message : String(err));
+      if (reopen) void openNote(reopen);
+      return;
+    }
+    setStatus(result.status);
+    if (result.error) setFolderError(result.error);
+    if (result.status.folder === status?.folder) {
+      // Cancelled or failed: back to where the user was.
+      if (reopen) void openNote(reopen);
+      return;
+    }
+    setNotes(await window.ipc.invoke("vault:listNotes", null));
+    setViewGraph(false);
+    setGraph(null);
+    setSync(null);
+    setLastSyncError(null);
+  }
+
   if (!status) return <div className="h-full" />;
+
+  const syncBusy = status.syncing || (sync !== null && sync.phase !== "idle");
 
   // ------------------------------------------------------------------
   // Setup view
@@ -140,16 +192,17 @@ export default function VaultMode() {
             </p>
 
             <button
-              onClick={() =>
-                void window.ipc
-                  .invoke("vault:chooseFolder", null)
-                  .then(setStatus)
-              }
+              onClick={() => void chooseFolder()}
               className="mt-6 flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white"
             >
               <FolderOpen size={16} />
               Choose vault folder
             </button>
+            {folderError && (
+              <p className="mt-2 font-mono text-[11px] text-amber">
+                {folderError}
+              </p>
+            )}
 
             <div className="mt-8 space-y-3">
               <div className="rounded-xl border border-line bg-surface p-4">
@@ -219,7 +272,7 @@ export default function VaultMode() {
               setLastSyncError(null);
               void window.ipc.invoke("vault:syncNow", null);
             }}
-            disabled={status.syncing || (sync !== null && sync.phase !== "idle")}
+            disabled={syncBusy}
             className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
           >
             <RefreshCw size={13} />
@@ -253,6 +306,14 @@ export default function VaultMode() {
       {showSettings && (
         <div className="shrink-0 border-b border-line bg-surface px-4 py-3">
           <div className="flex flex-wrap items-center gap-x-8 gap-y-2">
+            <button
+              onClick={() => void chooseFolder()}
+              disabled={syncBusy}
+              className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-xs text-ink-muted hover:border-accent hover:text-accent-ink disabled:opacity-40"
+            >
+              <FolderOpen size={13} />
+              Change folder…
+            </button>
             <label className="flex items-center gap-2 text-xs text-ink">
               <Switch
                 checked={status.mailEnabled}
@@ -339,6 +400,11 @@ export default function VaultMode() {
               </button>
             )}
           </div>
+          {folderError && (
+            <p className="mt-2 font-mono text-[11px] text-amber">
+              {folderError}
+            </p>
+          )}
         </div>
       )}
 

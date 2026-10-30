@@ -3,7 +3,7 @@
  * Safety model: sandboxed shell commands and writes
  * to allowed paths run without confirmation; everything else asks the user.
  */
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -346,6 +346,15 @@ function editFileTool(ctx: TaskContext): Tool {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 300_000;
 
+// Shell commands still running, so app quit can stop them.
+const runningCommands = new Set<ChildProcess>();
+
+/** Quit, step 2: kill every agent shell command still running. */
+export function killRunningCommands(): void {
+  for (const child of runningCommands) child.kill("SIGKILL");
+  runningCommands.clear();
+}
+
 function shellCommandTool(ctx: TaskContext): Tool {
   return tool({
     description:
@@ -406,6 +415,7 @@ function shellCommandTool(ctx: TaskContext): Tool {
           cwd: workingDir,
           env,
         });
+        runningCommands.add(child);
         let stdout = "";
         let stderr = "";
         let timedOut = false;
@@ -418,6 +428,7 @@ function shellCommandTool(ctx: TaskContext): Tool {
         child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
         child.on("close", (code) => {
           clearTimeout(timer);
+          runningCommands.delete(child);
           if (timedOut) {
             resolve(`Command timed out after ${timeout}ms: ${args.command}`);
             return;
@@ -453,6 +464,7 @@ function shellCommandTool(ctx: TaskContext): Tool {
         });
         child.on("error", (err) => {
           clearTimeout(timer);
+          runningCommands.delete(child);
           resolve(`Error executing command: ${err.message}`);
         });
       });

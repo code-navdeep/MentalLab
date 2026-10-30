@@ -3,6 +3,7 @@ dist/
 dist-tsc/
 .package/
 out/
+build/
 *.tsbuildinfo
 .DS_Store
 .env
