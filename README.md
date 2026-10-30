@@ -64,3 +64,21 @@ constrain that:
   write to `/tmp` and the app's data folder, and may only reach an allowlist of
   network domains. Anything broader runs in direct mode, which always asks
   before it runs and shows you the exact command.
+
+## Known limitations
+
+- **Chat sources after changing the vault folder.** A conversation limited to
+  specific sources (Chat's *Sources* picker) keeps pointing at the old vault
+  after *Vault → Change folder…*. It won't search the new vault until you tick
+  it in that conversation's Sources picker, and the "Sources: n/m" count can
+  read one too high until you do. Removing a folder in *Settings → Library*
+  behaves the same way. Conversations set to *All sources* are unaffected.
+- **Programs started by agent commands at Quit.** Quitting stops every agent
+  shell command still running, but a program that a command launched in the
+  background can keep running after the app has quit. If you quit during a
+  long agent task, check Activity Monitor.
+- **Quitting during the first model download.** The first time Chat or
+  indexing needs local search, the app downloads a small search model into
+  `~/Library/Application Support/Mental Lab/models`. Quitting mid-download may
+  leave an incomplete file; if local search fails afterwards, delete that
+  `models` folder and reopen the app to download it again.
